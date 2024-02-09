@@ -1,0 +1,7 @@
+We need to differentiate the 3 runs on the offline phase. As it is now we just run through all 25 images.
+We need to have 5 of the 25 images to not be recognized automatically (the corners) but manually. So far all 25 are recognized automatically.
+We need to clarify when do we automatically recognize the corners and when we manually choose them.
+
+Online phase works fine.
+
+Need to see which of the CHOICE options we are doing.
