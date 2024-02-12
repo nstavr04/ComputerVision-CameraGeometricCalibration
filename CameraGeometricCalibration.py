@@ -34,7 +34,6 @@ def calibrate_camera(images, square_size):
         # Enhancing edges -> Cany Edge Detection
         # For getting rid of light reflections -> Histogram Equalization
         
-
         processed_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         processed_img = cv2.equalizeHist(processed_img)
 
