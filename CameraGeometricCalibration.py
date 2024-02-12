@@ -31,24 +31,46 @@ def calibrate_camera(images, square_size):
         # Not needed anymore because we use cv2.imread in image resizing
         # img = cv2.imread(fname)
 
+        # For choice extra points, we can do the following:
+        # Enhancing edges -> Cany Edge Detection
+        # For getting rid of light reflections -> Histogram Equalization
+
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # Find the chess board corners
         ret, corners = cv2.findChessboardCorners(gray, (9,6), None)
 
+        ret = False
+
         # If found, add object points, image points
         if ret == True:
             objpoints.append(objp)
-            # Refines the corner positions - Not sure if it's needed or if it helps
+            # Refines the corner positions - findChessboardCorners uses this function,
+            # but we can use it with different parameters to get better results
             corners2 = cv2.cornerSubPix(gray,corners, (20,20), (-1,-1), criteria)
 
             imgpoints.append(corners2)
 
             # Draw and display the corners
-            cv2.drawChessboardCorners(img, (9,6), corners2, ret)
+            cv2.drawChessboardCorners(gray, (9,6), corners2, ret)
             cv2.imshow('img', img)
             # Adjust the time to see the images
-            cv2.waitKey(200)
+            cv2.waitKey(500)
+        
+        # If we didn't find the corners, we will do manual calibration
+        else:
+            print("Could not find the corners in the image. Proceeding with manual calibration...")
+            
+            corners = manual_calibrate(img)
+            objpoints.append(objp)
+            imgpoints.append(corners)
+
+            ret = True
+            # Draw and display the corners
+            cv2.drawChessboardCorners(img, (9,6), corners, ret)
+            cv2.imshow('img', img)
+            # Adjust the time to see the images
+            cv2.waitKey(50000)
 
     cv2.destroyAllWindows()
 
@@ -58,37 +80,33 @@ def calibrate_camera(images, square_size):
 # The first image you see is the one you have to click on the corners
 # The second image that will pop up it will show the points you clicked with red circles
 # Make sure to click the corners in the following order: top-left, top-right, bottom-left, bottom-right 
-def manual_calibrate(images):
+def manual_calibrate(img):
     
     # Setting corner_points as global because I cannot pass parameters to the click_event function
     global corner_points
+
+    # Reset the corner_points for every image
+    corner_points = []
+
+    cv2.imshow("img", img)
+    cv2.setMouseCallback("img", click_event, img)
+    # We wait until a key is pressed
+    cv2.waitKey(0)
+
+    # We assume that the corner_points are in the following order:
+    # top-left, top-right, bottom-left, bottom-right
+    top_left = corner_points[0]
+    top_right = corner_points[1]
+    bottom_left = corner_points[2]
+    bottom_right = corner_points[3]
+
+    all_points = interpolate_board_points(top_left, top_right, bottom_left, bottom_right)
     
-    for img in images:
-        # Reset the corner_points for every image
-        corner_points = []
-
-        cv2.imshow("img", img)
-        cv2.setMouseCallback("img", click_event, img)
-        # We wait until a key is pressed
-        cv2.waitKey(0)
-
-        # We assume that the corner_points are in the following order:
-        # top-left, top-right, bottom-left, bottom-right
-        top_left = corner_points[0]
-        top_right = corner_points[1]
-        bottom_left = corner_points[2]
-        bottom_right = corner_points[3]
-
-        all_points = interpolate_board_points(top_left, top_right, bottom_left, bottom_right)
-        
-        # Draw the points on the image
-        for point in all_points:
-            cv2.circle(img, (int(point[0]), int(point[1])), 5, (0, 0, 255), -1)
-
-        cv2.imshow("img", img)
-        cv2.waitKey(5000)
-
-    cv2.destroyAllWindows()
+    # Draw the points on the image
+    for point in all_points:
+        cv2.circle(img, (int(point[0]), int(point[1])), 5, (0, 0, 255), -1)
+    
+    return all_points
 
 # Used for manual calibration
 def interpolate_board_points(top_left, top_right, bottom_left, bottom_right, rows=6, cols=9):
@@ -220,12 +238,12 @@ def main():
 
     ##################### Online Phase #######################
 
-    training_image = cv2.imread("Checker-Images-Testing/IMG_20240209_200103.jpg")
+    testing_image = cv2.imread("Checker-Images-Testing/IMG_20240209_200103.jpg")
     # Manually resize the training image
-    resized_training_image = cv2.resize(training_image, (new_width, new_height))
+    resized_testing_image = cv2.resize(testing_image, (new_width, new_height))
 
     # Draw the 3D axis on the first image
-    imgpts, img_with_axes = draw_3D_axis(ret, mtx, dist, rvecs, tvecs, resized_training_image)
+    imgpts, img_with_axes = draw_3D_axis(ret, mtx, dist, rvecs, tvecs, resized_testing_image)
 
     draw_3D_cube(ret, mtx, dist, rvecs, tvecs, imgpts, img_with_axes)
 
