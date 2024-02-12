@@ -28,34 +28,33 @@ def calibrate_camera(images, square_size):
     imgpoints = [] # 2d points in image plane.
 
     for img in images:
-        # Not needed anymore because we use cv2.imread in image resizing
-        # img = cv2.imread(fname)
 
         # For choice extra points, we can do the following:
         # Enhancing edges -> Cany Edge Detection
         # For getting rid of light reflections -> Histogram Equalization
 
-        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        processed_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # Find the chess board corners
-        ret, corners = cv2.findChessboardCorners(gray_img, (9,6), None)
-
-        ret = False
+        ret, corners = cv2.findChessboardCorners(processed_img, (9,6), None)
 
         # If found, add object points, image points
         if ret == True:
+            print("Found the corners in the image. Proceeding with automatic calibration...")
+
             objpoints.append(objp)
+
             # Refines the corner positions - findChessboardCorners uses this function,
             # but we can use it with different parameters to get better results
-            corners2 = cv2.cornerSubPix(gray_img,corners, (20,20), (-1,-1), criteria)
+            corners2 = cv2.cornerSubPix(processed_img, corners, (20,20), (-1,-1), criteria)
 
             imgpoints.append(corners2)
 
             # Draw and display the corners
-            cv2.drawChessboardCorners(gray_img, (9,6), corners2, ret)
+            cv2.drawChessboardCorners(img, (9,6), corners2, ret)
             cv2.imshow('img', img)
-            # Adjust the time to see the images
-            cv2.waitKey(500)
+            # Wait for key press
+            cv2.waitKey(0)
         
         # If we didn't find the corners, we will do manual calibration
         else:
@@ -65,16 +64,16 @@ def calibrate_camera(images, square_size):
             objpoints.append(objp)
             imgpoints.append(corners)
 
+            # We set to true to be able to use the corner drawing function
             ret = True
             # Draw and display the corners
             cv2.drawChessboardCorners(img, (9,6), corners, ret)
             cv2.imshow('img', img)
-            # Adjust the time to see the images
-            cv2.waitKey(500)
+            cv2.waitKey(0)
 
     cv2.destroyAllWindows()
 
-    return objpoints, imgpoints, gray_img
+    return objpoints, imgpoints, processed_img
 
 # We manually calibrate the camera by clicking on the corners of the checkerboard
 # The first image you see is the one you have to click on the corners
@@ -90,7 +89,6 @@ def manual_calibrate(img):
 
     cv2.imshow("img", img)
     cv2.setMouseCallback("img", click_event, img)
-    # We wait until a key is pressed
     cv2.waitKey(0)
 
     # We assume that the corner_points are in the following order:
@@ -114,13 +112,12 @@ def interpolate_board_points(top_left, top_right, bottom_left, bottom_right, row
     # Generate grid coordinates
     grid_x, grid_y = np.meshgrid(np.linspace(0, 1, cols), np.linspace(0, 1, rows))
     
-    # Interpolate corner positions
+    # We want to interpolate corner positions
     top_edge = np.linspace(top_left, top_right, cols)
     bottom_edge = np.linspace(bottom_left, bottom_right, cols)
     left_edge = np.linspace(top_left, bottom_left, rows)
     right_edge = np.linspace(top_right, bottom_right, rows)
     
-    # Linear interpolation for interior points
     interior_points = []
     for y in range(rows):
         for x in range(cols):
@@ -166,7 +163,7 @@ def draw_3D_axis(ret, mtx, dist, rvecs, tvecs, training_image):
     img_with_axes = cv2.line(img_with_axes, origin, tuple(imgpts[3].ravel()), (255, 0, 0), 5)  # Z-Axis in blue
 
     cv2.imshow('Image_with_axes', img_with_axes)
-    cv2.waitKey(5000)
+    cv2.waitKey(0)
     cv2.destroyAllWindows()
 
     return imgpts, img_with_axes
@@ -209,7 +206,24 @@ def draw_3D_cube(ret, mtx, dist, rvecs, tvecs, imgpts, img_with_axes):
 
 def main():
 
-    images = glob.glob('Checker-Images-Training/*.jpg')
+    while True:
+        run_choice = input("Choose training run (1, 2, or 3): ")
+        
+        if run_choice == "1":
+            print("Training with all 25 images - 5 of them were manually calibrated")
+            images = glob.glob('Checker-Images-Train-Run1/*.jpg')
+            break
+        elif run_choice == "2":
+            print("Training with 10 images - all of them were automatically calibrated")
+            images = glob.glob('Checker-Images-Train-Run2/*.jpg')
+            break
+        elif run_choice == "3":
+            print("Training with 5 images - all of them were automatically calibrated")
+            images = glob.glob('Checker-Images-Train-Run3/*.jpg')
+            break
+        else:
+            print("Invalid choice. Please choose either 1, 2, or 3.")
+
     square_size = 2.4
 
     # Read the first image to get its height and width
@@ -227,10 +241,6 @@ def main():
     # Resize the images
     resized_images = resize_images(images, new_width, new_height)
 
-    # Call the manual calibration function
-    # Uncomment for manual calibration
-    # manual_calibrate(resized_images)
-
     # Call the camera calibration function - automatic calibration
     objpoints, imgpoints, gray_img = calibrate_camera(resized_images, square_size)
 
@@ -238,7 +248,7 @@ def main():
 
     ##################### Online Phase #######################
 
-    testing_image = cv2.imread("Checker-Images-Testing/IMG_20240209_200103.jpg")
+    testing_image = cv2.imread("Checker-Images-Testing/IMG_Testing2.jpg")
     # Manually resize the training image
     resized_testing_image = cv2.resize(testing_image, (new_width, new_height))
 
