@@ -35,10 +35,10 @@ def calibrate_camera(images, square_size):
         # Enhancing edges -> Cany Edge Detection
         # For getting rid of light reflections -> Histogram Equalization
 
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # Find the chess board corners
-        ret, corners = cv2.findChessboardCorners(gray, (9,6), None)
+        ret, corners = cv2.findChessboardCorners(gray_img, (9,6), None)
 
         ret = False
 
@@ -47,12 +47,12 @@ def calibrate_camera(images, square_size):
             objpoints.append(objp)
             # Refines the corner positions - findChessboardCorners uses this function,
             # but we can use it with different parameters to get better results
-            corners2 = cv2.cornerSubPix(gray,corners, (20,20), (-1,-1), criteria)
+            corners2 = cv2.cornerSubPix(gray_img,corners, (20,20), (-1,-1), criteria)
 
             imgpoints.append(corners2)
 
             # Draw and display the corners
-            cv2.drawChessboardCorners(gray, (9,6), corners2, ret)
+            cv2.drawChessboardCorners(gray_img, (9,6), corners2, ret)
             cv2.imshow('img', img)
             # Adjust the time to see the images
             cv2.waitKey(500)
@@ -70,11 +70,11 @@ def calibrate_camera(images, square_size):
             cv2.drawChessboardCorners(img, (9,6), corners, ret)
             cv2.imshow('img', img)
             # Adjust the time to see the images
-            cv2.waitKey(50000)
+            cv2.waitKey(500)
 
     cv2.destroyAllWindows()
 
-    return objpoints, imgpoints, gray
+    return objpoints, imgpoints, gray_img
 
 # We manually calibrate the camera by clicking on the corners of the checkerboard
 # The first image you see is the one you have to click on the corners
@@ -232,9 +232,9 @@ def main():
     # manual_calibrate(resized_images)
 
     # Call the camera calibration function - automatic calibration
-    objpoints, imgpoints, gray = calibrate_camera(resized_images, square_size)
+    objpoints, imgpoints, gray_img = calibrate_camera(resized_images, square_size)
 
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray_img.shape[::-1], None, None)
 
     ##################### Online Phase #######################
 
