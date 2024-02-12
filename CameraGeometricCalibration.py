@@ -29,11 +29,14 @@ def calibrate_camera(images, square_size):
 
     for img in images:
 
-        # For choice extra points, we can do the following:
+        # We do the following on the image to improve the accuracy of the corner detection:
+        # Turning image to grayscale
         # Enhancing edges -> Cany Edge Detection
         # For getting rid of light reflections -> Histogram Equalization
+        
 
         processed_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        processed_img = cv2.equalizeHist(processed_img)
 
         # Find the chess board corners
         ret, corners = cv2.findChessboardCorners(processed_img, (9,6), None)
@@ -82,12 +85,13 @@ def calibrate_camera(images, square_size):
 def manual_calibrate(img):
     
     # Setting corner_points as global because I cannot pass parameters to the click_event function
-    global corner_points
+    global corner_points, original_image
 
     # Reset the corner_points for every image
     corner_points = []
 
     cv2.imshow("img", img)
+    original_image = img
     cv2.setMouseCallback("img", click_event, img)
     cv2.waitKey(0)
 
@@ -129,20 +133,50 @@ def interpolate_board_points(top_left, top_right, bottom_left, bottom_right, row
             point = top * (1 - grid_y[y, x]) + bottom * grid_y[y, x]
             interior_points.append(point)
             
-    return np.array(interior_points, dtype=np.float32)   
+    return np.array(interior_points, dtype=np.float32)
 
-# Used for manual calibration
 def click_event(event, x, y, flags, params):
-     if event == cv2.EVENT_LBUTTONDOWN:
-        # Store the coordinates of the clicked point
-        corner_points.append((x, y))
+
+    global zoom_scale, zoom_window_size
+    zoom_scale = 4
+    zoom_window_size = 200
+    
+    if event == cv2.EVENT_LBUTTONDOWN and not original_image is None:
+        # Calculate bounds for the zoomed region
+        x_min = max(x - zoom_window_size, 0)
+        y_min = max(y - zoom_window_size, 0)
+        x_max = min(x + zoom_window_size, original_image.shape[1])
+        y_max = min(y + zoom_window_size, original_image.shape[0])
+
+        # Extract and zoom in on the region
+        zoom_region = original_image[y_min:y_max, x_min:x_max].copy()
+        zoom_region = cv2.resize(zoom_region, None, fx=zoom_scale, fy=zoom_scale, interpolation=cv2.INTER_LINEAR)
         
-        # Display the point on the image for visual feedback
-        cv2.circle(params, (x, y), 5, (0, 0, 255), -1)
-        cv2.imshow("Image", params)
+        # Display the zoomed window
+        cv2.imshow("Zoomed", zoom_region)
+        cv2.setMouseCallback("Zoomed", click_event_zoomed, (x_min, y_min, x_max, y_max))
+
+def click_event_zoomed(event, x, y, flags, params):
+    global corner_points, original_image
+
+    if event == cv2.EVENT_LBUTTONDOWN and not original_image is None:
+        # Translate click position back to original image coordinates
+        x_min, y_min, x_max, y_max = params
+        precise_x = int(x / zoom_scale + x_min)
+        precise_y = int(y / zoom_scale + y_min)
+
+        # Append precise corner point
+        corner_points.append((precise_x, precise_y))
+        
+        # Visual feedback on the original image
+        cv2.circle(original_image, (precise_x, precise_y), 5, (0, 0, 255), -1)
+        cv2.imshow("Image", original_image)
         
         if len(corner_points) == 4:
+            original_image = None
             cv2.destroyAllWindows()
+        else:
+            cv2.destroyWindow("Zoomed")
 
 def draw_3D_axis(ret, mtx, dist, rvecs, tvecs, training_image):
     # Axis points in 3D space. We'll draw the axis lines from the origin to these points.
