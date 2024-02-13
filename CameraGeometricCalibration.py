@@ -183,7 +183,6 @@ def draw_3D_axis(ret, mtx, dist, rvecs, tvecs, training_image):
     axis = np.float32([[0, 0, 0], [9, 0, 0], [0, 9, 0], [0, 0, -9]]).reshape(-1, 3)
 
     img_with_axes = training_image.copy()
-    # rvecs, tvecs = rvecs[1], tvecs[1]
 
     # Project the 3D points to the 2D image plane
     imgpts, jac = cv2.projectPoints(axis, rvecs, tvecs, mtx, dist)
@@ -217,7 +216,6 @@ def draw_3D_cube(ret, mtx, dist, rvecs, tvecs, imgpts, img_with_axes):
     ])
 
     # Project the cubes corners on the 2D image plane
-    # rvecs, tvecs = rvecs[0], tvecs[0]
     imgpts_cube, _ = cv2.projectPoints(cube, rvecs, tvecs, mtx, dist)
     imgpts_cube = imgpts_cube.reshape(-1, 2).astype(int)
 
@@ -283,7 +281,7 @@ def main():
     ##################### Online Phase #######################
     
     # We get the test image, find the corner points, and use the mtx and dist from the camera calibration and the test image points to 
-    # get the rvecs and tvecs. We then use those 
+    # get the rvecs and tvecs. We then use those to create the 3D axis and cube
 
     testing_image = cv2.imread("Checker-Images-Testing/IMG_Testing3.jpg")
     # Manually resize the training image
@@ -296,8 +294,6 @@ def main():
 
     ret, rvecs2, tvecs2 = cv2.solvePnP(objp, imgpoints2, mtx, dist)
 
-    #### EXPERIMENT ####
-
     # Works without, maybe we can use them, I don't know
 
     # newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (new_width,new_height), 1, (new_width,new_height))
@@ -307,6 +303,7 @@ def main():
     # x, y, w, h = roi
     # dst = dst[y:y+h, x:x+w]
 
+    # Checking the error of the calibration
     mean_error = 0
     for i in range(len(objpoints)):
         imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
@@ -314,11 +311,8 @@ def main():
         mean_error += error
     print( "total error: {}".format(mean_error/len(objpoints)) )
 
-    ####################
-
-    # Draw the 3D axis on the first image
+    # Draw the 3D axis and the cube on the test image
     imgpts, img_with_axes = draw_3D_axis(ret, mtx, dist, rvecs2, tvecs2, resized_testing_image)
-
     draw_3D_cube(ret, mtx, dist, rvecs2, tvecs2, imgpts, img_with_axes)
 
 if __name__ == "__main__":
