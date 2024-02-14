@@ -94,6 +94,11 @@ def manual_calibrate(img):
     cv2.setMouseCallback("img", click_event, img)
     cv2.waitKey(0)
 
+    while len(corner_points) < 4:
+        print("You did not select the 4 corners. Please try again.")
+        cv2.setMouseCallback("img", click_event, img)
+        cv2.waitKey(0)
+
     # We assume that the corner_points are in the following order:
     # top-left, top-right, bottom-left, bottom-right
     top_left = corner_points[0]
@@ -287,12 +292,12 @@ def main():
     # Manually resize the training image
     resized_testing_image = cv2.resize(testing_image, (new_width, new_height))
 
-    ret, imgpoints2 = cv2.findChessboardCorners(resized_testing_image, (9,6), None)
+    ret, imgpoints_test = cv2.findChessboardCorners(resized_testing_image, (9,6), None)
 
     objp = np.zeros((6*9, 3), np.float32)
     objp[:, :2] = np.mgrid[0:9, 0:6].T.reshape(-1, 2) * square_size
 
-    ret, rvecs2, tvecs2 = cv2.solvePnP(objp, imgpoints2, mtx, dist)
+    ret, rvecs_test, tvecs_test = cv2.solvePnP(objp, imgpoints_test, mtx, dist)
 
     # Works without, maybe we can use them, I don't know
 
@@ -304,16 +309,17 @@ def main():
     # dst = dst[y:y+h, x:x+w]
 
     # Checking the error of the calibration
-    mean_error = 0
-    for i in range(len(objpoints)):
-        imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
-        error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
-        mean_error += error
-    print( "total error: {}".format(mean_error/len(objpoints)) )
+    # Doesn't work for some reason when we do manual calibration
+    # mean_error = 0
+    # for i in range(len(objpoints)):
+    #     imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
+    #     error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
+    #     mean_error += error
+    # print( "total error: {}".format(mean_error/len(objpoints)) )
 
     # Draw the 3D axis and the cube on the test image
-    imgpts, img_with_axes = draw_3D_axis(ret, mtx, dist, rvecs2, tvecs2, resized_testing_image)
-    draw_3D_cube(ret, mtx, dist, rvecs2, tvecs2, imgpts, img_with_axes)
+    imgpts, img_with_axes = draw_3D_axis(ret, mtx, dist, rvecs_test, tvecs_test, resized_testing_image)
+    draw_3D_cube(ret, mtx, dist, rvecs_test, tvecs_test, imgpts, img_with_axes)
 
 if __name__ == "__main__":
     main()
