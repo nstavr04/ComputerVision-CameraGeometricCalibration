@@ -62,7 +62,7 @@ def calibrate_camera(images, square_size):
         else:
             print("Could not find the corners in the image. Proceeding with manual calibration...")
             
-            corners = manual_calibrate(img)
+            corners = manual_calibrate(img, square_size)
             objpoints.append(objp)
             imgpoints.append(corners)
 
@@ -81,7 +81,7 @@ def calibrate_camera(images, square_size):
 # The first image you see is the one you have to click on the corners
 # The second image that will pop up it will show the points you clicked with red circles
 # Make sure to click the corners in the following order: top-left, top-right, bottom-left, bottom-right 
-def manual_calibrate(img):
+def manual_calibrate(img, square_size):
     
     # Setting corner_points as global because I cannot pass parameters to the click_event function
     global corner_points, original_image
@@ -106,38 +106,65 @@ def manual_calibrate(img):
     bottom_left = corner_points[2]
     bottom_right = corner_points[3]
 
-    all_points = interpolate_board_points(top_left, top_right, bottom_left, bottom_right)
+    all_points = interpolate_board_points_homography(top_left, top_right, bottom_left, bottom_right, square_size)
     
     # Draw the points on the image
     for point in all_points:
         cv2.circle(img, (int(point[0]), int(point[1])), 5, (0, 0, 255), -1)
     
+    # Ensure correct shape (N, 1, 2) - Was needed otherwise in error calculation in main we would get an error
+    all_points = all_points.reshape(-1, 1, 2)
+
     return all_points
 
 # Used for manual calibration
-def interpolate_board_points(top_left, top_right, bottom_left, bottom_right, rows=6, cols=9):
+# def interpolate_board_points(top_left, top_right, bottom_left, bottom_right, rows=6, cols=9):
 
-    # Generate grid coordinates
-    grid_x, grid_y = np.meshgrid(np.linspace(0, 1, cols), np.linspace(0, 1, rows))
+#     # Generate grid coordinates
+#     grid_x, grid_y = np.meshgrid(np.linspace(0, 1, cols), np.linspace(0, 1, rows))
     
-    # We want to interpolate corner positions
-    top_edge = np.linspace(top_left, top_right, cols)
-    bottom_edge = np.linspace(bottom_left, bottom_right, cols)
-    left_edge = np.linspace(top_left, bottom_left, rows)
-    right_edge = np.linspace(top_right, bottom_right, rows)
+#     # We want to interpolate corner positions
+#     top_edge = np.linspace(top_left, top_right, cols)
+#     bottom_edge = np.linspace(bottom_left, bottom_right, cols)
+#     left_edge = np.linspace(top_left, bottom_left, rows)
+#     right_edge = np.linspace(top_right, bottom_right, rows)
     
-    interior_points = []
-    for y in range(rows):
-        for x in range(cols):
-            # Interpolate points along the top and bottom edges
-            top = top_edge[x]
-            bottom = bottom_edge[x]
+#     interior_points = []
+#     for y in range(rows):
+#         for x in range(cols):
+#             # Interpolate points along the top and bottom edges
+#             top = top_edge[x]
+#             bottom = bottom_edge[x]
             
-            # Finally, interpolate between the top and bottom to find the point
-            point = top * (1 - grid_y[y, x]) + bottom * grid_y[y, x]
-            interior_points.append(point)
+#             # Finally, interpolate between the top and bottom to find the point
+#             point = top * (1 - grid_y[y, x]) + bottom * grid_y[y, x]
+#             interior_points.append(point)
             
-    return np.array(interior_points, dtype=np.float32)
+#     return np.array(interior_points, dtype=np.float32)
+
+# Used for manual calibration
+def interpolate_board_points_homography(top_left, top_right, bottom_left, bottom_right, square_size=2.4, rows=6, cols=9):
+    
+    # Points - image plane
+    dst_pts = np.array([top_left, top_right, bottom_left, bottom_right], dtype="float32")
+
+    # Points - checkerboard plane
+    src_pts = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]], dtype="float32") * square_size
+
+    H, _ = cv2.findHomography(src_pts, dst_pts)
+
+    # Grid points on the checkerboard
+    grid_x, grid_y = np.meshgrid(np.arange(cols), np.arange(rows))
+    checkerboard_pts = np.hstack((grid_x.reshape(-1, 1), grid_y.reshape(-1, 1))) * square_size
+    checkerboard_pts_homogeneous = np.insert(checkerboard_pts, 2, 1, axis=1).T
+
+    # Show the grid points in the image
+    image_pts_homogeneous = np.dot(H, checkerboard_pts_homogeneous)
+    image_pts = image_pts_homogeneous[:2, :] / image_pts_homogeneous[2, :]
+    
+    image_pts = image_pts.T.reshape(-1, 2).astype(np.float32)
+
+    return image_pts
 
 def click_event(event, x, y, flags, params):
 
@@ -310,12 +337,12 @@ def main():
 
     # Checking the error of the calibration
     # Doesn't work for some reason when we do manual calibration
-    # mean_error = 0
-    # for i in range(len(objpoints)):
-    #     imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
-    #     error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
-    #     mean_error += error
-    # print( "total error: {}".format(mean_error/len(objpoints)) )
+    mean_error = 0
+    for i in range(len(objpoints)):
+        imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
+        error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
+        mean_error += error
+    print( "total error: {}".format(mean_error/len(objpoints)) )
 
     # Draw the 3D axis and the cube on the test image
     imgpts, img_with_axes = draw_3D_axis(ret, mtx, dist, rvecs_test, tvecs_test, resized_testing_image)
