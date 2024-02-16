@@ -29,13 +29,15 @@ def calibrate_camera(images, square_size):
 
     for img in images:
 
-        # We do the following on the image to improve the accuracy of the corner detection:
-        # Turning image to grayscale
-        # Enhancing edges -> Cany Edge Detection
-        # For getting rid of light reflections -> Histogram Equalization
+        # We make the image grayscale, apply GaussianBlur and then CLAHE to help with the automatic corner detection
+        # Overall, it lowers the total error of the calibration
         
         processed_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        processed_img = cv2.equalizeHist(processed_img)
+        processed_img = cv2.GaussianBlur(processed_img, (5, 5), 0)
+        clahe = cv2.createCLAHE(clipLimit=1, tileGridSize=(6, 9))
+
+        # Apply CLAHE to the grayscale image
+        processed_img = clahe.apply(processed_img)
 
         # Find the chess board corners
         ret, corners = cv2.findChessboardCorners(processed_img, (9,6), None)
@@ -116,31 +118,6 @@ def manual_calibrate(img, square_size):
     all_points = all_points.reshape(-1, 1, 2)
 
     return all_points
-
-# Used for manual calibration
-# def interpolate_board_points(top_left, top_right, bottom_left, bottom_right, rows=6, cols=9):
-
-#     # Generate grid coordinates
-#     grid_x, grid_y = np.meshgrid(np.linspace(0, 1, cols), np.linspace(0, 1, rows))
-    
-#     # We want to interpolate corner positions
-#     top_edge = np.linspace(top_left, top_right, cols)
-#     bottom_edge = np.linspace(bottom_left, bottom_right, cols)
-#     left_edge = np.linspace(top_left, bottom_left, rows)
-#     right_edge = np.linspace(top_right, bottom_right, rows)
-    
-#     interior_points = []
-#     for y in range(rows):
-#         for x in range(cols):
-#             # Interpolate points along the top and bottom edges
-#             top = top_edge[x]
-#             bottom = bottom_edge[x]
-            
-#             # Finally, interpolate between the top and bottom to find the point
-#             point = top * (1 - grid_y[y, x]) + bottom * grid_y[y, x]
-#             interior_points.append(point)
-            
-#     return np.array(interior_points, dtype=np.float32)
 
 # Used for manual calibration
 def interpolate_board_points_homography(top_left, top_right, bottom_left, bottom_right, square_size=2.4, rows=6, cols=9):
@@ -267,21 +244,29 @@ def draw_3D_cube(ret, mtx, dist, rvecs, tvecs, imgpts, img_with_axes):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+def calculate_total_error(objpoints, imgpoints, rvecs, tvecs, mtx, dist):
+        mean_error = 0
+        for i in range(len(objpoints)):
+            imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
+            error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
+            mean_error += error
+        return mean_error/len(objpoints)
+
 def main():
 
     while True:
         run_choice = input("Choose training run (1, 2, or 3): ")
         
         if run_choice == "1":
-            print("Training with all 25 images - 5 of them were manually calibrated")
+            print("Training with all 25 images")
             images = glob.glob('Checker-Images-Train-Run1/*.jpg')
             break
         elif run_choice == "2":
-            print("Training with 10 images - all of them were automatically calibrated")
+            print("Training with 10 images")
             images = glob.glob('Checker-Images-Train-Run2/*.jpg')
             break
         elif run_choice == "3":
-            print("Training with 5 images - all of them were automatically calibrated")
+            print("Training with 5 images")
             images = glob.glob('Checker-Images-Train-Run3/*.jpg')
             break
         else:
@@ -315,8 +300,9 @@ def main():
     # We get the test image, find the corner points, and use the mtx and dist from the camera calibration and the test image points to 
     # get the rvecs and tvecs. We then use those to create the 3D axis and cube
 
+    # !!!!!!!! CHANGE ACCORDINGLY TO THE TEST IMAGE YOU WANT TO USE !!!!!!!!
     testing_image = cv2.imread("Checker-Images-Testing/IMG_Testing3.jpg")
-    # Manually resize the training image
+
     resized_testing_image = cv2.resize(testing_image, (new_width, new_height))
 
     ret, imgpoints_test = cv2.findChessboardCorners(resized_testing_image, (9,6), None)
@@ -326,23 +312,9 @@ def main():
 
     ret, rvecs_test, tvecs_test = cv2.solvePnP(objp, imgpoints_test, mtx, dist)
 
-    # Works without, maybe we can use them, I don't know
-
-    # newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (new_width,new_height), 1, (new_width,new_height))
-    # # undistort
-    # dst = cv2.undistort(img, mtx, dist, None, newcameramtx)
-    # # crop the image
-    # x, y, w, h = roi
-    # dst = dst[y:y+h, x:x+w]
-
     # Checking the error of the calibration
-    # Doesn't work for some reason when we do manual calibration
-    mean_error = 0
-    for i in range(len(objpoints)):
-        imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
-        error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
-        mean_error += error
-    print( "total error: {}".format(mean_error/len(objpoints)) )
+    total_error = calculate_total_error(objpoints, imgpoints, rvecs, tvecs, mtx, dist)
+    print("total error: {}".format(total_error))
 
     # Draw the 3D axis and the cube on the test image
     imgpts, img_with_axes = draw_3D_axis(ret, mtx, dist, rvecs_test, tvecs_test, resized_testing_image)
