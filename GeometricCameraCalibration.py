@@ -12,12 +12,7 @@ def resize_images(image_paths, new_size):
     Returns:
         list of ndarray: List of resized images.
     """
-    resized_images = []
-    for image_path in image_paths:
-        img = cv2.imread(image_path)
-        resized_img = cv2.resize(img, new_size)
-        resized_images.append(resized_img)
-    return resized_images
+    return [cv2.resize(cv2.imread(image_path), new_size) for image_path in image_paths]
 
 def calibrate_camera(images, square_size):
     """Calibrate camera using chessboard images.
@@ -68,8 +63,13 @@ def process_and_detect_corners(img, square_size, criteria):
         tuple: A tuple containing a boolean indicating if corners were found,
                the refined corners (if found), and the processed image.
     """
+    
+    # We make the image grayscale, apply GaussianBlur and then CLAHE to help with the automatic corner detection
+    # Overall, it lowers the total error of the calibration
     processed_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # processed_img = cv2.equalizeHist(processed_img)
+    processed_img = cv2.GaussianBlur(processed_img, (5, 5), 0)
+    clahe = cv2.createCLAHE(clipLimit=1, tileGridSize=(6, 9))
+    processed_img = clahe.apply(processed_img)
     
     ret, corners = cv2.findChessboardCorners(processed_img, (9, 6), None)
     
@@ -78,12 +78,12 @@ def process_and_detect_corners(img, square_size, criteria):
         return True, corners_refined, processed_img
     else:
         return False, None, processed_img
-
+    
 # We manually calibrate the camera by clicking on the corners of the checkerboard
 # The first image you see is the one you have to click on the corners
 # The second image that will pop up it will show the points you clicked with red circles
 # Make sure to click the corners in the following order: top-left, top-right, bottom-left, bottom-right 
-def manual_calibrate(img):
+def manual_calibrate(img, square_size):
     
     # Setting corner_points as global because I cannot pass parameters to the click_event function
     global corner_points, original_image
@@ -108,38 +108,40 @@ def manual_calibrate(img):
     bottom_left = corner_points[2]
     bottom_right = corner_points[3]
 
-    all_points = interpolate_board_points(top_left, top_right, bottom_left, bottom_right)
+    all_points = interpolate_board_points_homography(top_left, top_right, bottom_left, bottom_right, square_size)
     
     # Draw the points on the image
     for point in all_points:
         cv2.circle(img, (int(point[0]), int(point[1])), 5, (0, 0, 255), -1)
     
+    # Ensure correct shape (N, 1, 2) - Was needed otherwise in error calculation in main we would get an error
+    all_points = all_points.reshape(-1, 1, 2)
+
     return all_points
 
 # Used for manual calibration
-def interpolate_board_points(top_left, top_right, bottom_left, bottom_right, rows=6, cols=9):
+def interpolate_board_points_homography(top_left, top_right, bottom_left, bottom_right, square_size=2.4, rows=6, cols=9):
+    
+    # Points - image plane
+    dst_pts = np.array([top_left, top_right, bottom_left, bottom_right], dtype="float32")
 
-    # Generate grid coordinates
-    grid_x, grid_y = np.meshgrid(np.linspace(0, 1, cols), np.linspace(0, 1, rows))
+    # Points - checkerboard plane
+    src_pts = np.array([[0, 0], [cols-1, 0], [0, rows-1], [cols-1, rows-1]], dtype="float32") * square_size
+
+    H, _ = cv2.findHomography(src_pts, dst_pts)
+
+    # Grid points on the checkerboard
+    grid_x, grid_y = np.meshgrid(np.arange(cols), np.arange(rows))
+    checkerboard_pts = np.hstack((grid_x.reshape(-1, 1), grid_y.reshape(-1, 1))) * square_size
+    checkerboard_pts_homogeneous = np.insert(checkerboard_pts, 2, 1, axis=1).T
+
+    # Show the grid points in the image
+    image_pts_homogeneous = np.dot(H, checkerboard_pts_homogeneous)
+    image_pts = image_pts_homogeneous[:2, :] / image_pts_homogeneous[2, :]
     
-    # We want to interpolate corner positions
-    top_edge = np.linspace(top_left, top_right, cols)
-    bottom_edge = np.linspace(bottom_left, bottom_right, cols)
-    left_edge = np.linspace(top_left, bottom_left, rows)
-    right_edge = np.linspace(top_right, bottom_right, rows)
-    
-    interior_points = []
-    for y in range(rows):
-        for x in range(cols):
-            # Interpolate points along the top and bottom edges
-            top = top_edge[x]
-            bottom = bottom_edge[x]
-            
-            # Finally, interpolate between the top and bottom to find the point
-            point = top * (1 - grid_y[y, x]) + bottom * grid_y[y, x]
-            interior_points.append(point)
-            
-    return np.array(interior_points, dtype=np.float32)
+    image_pts = image_pts.T.reshape(-1, 2).astype(np.float32)
+
+    return image_pts
 
 def click_event(event, x, y, flags, params):
 
@@ -242,6 +244,14 @@ def draw_3D_cube(ret, mtx, dist, rvecs, tvecs, imgpts, img_with_axes):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+def calculate_total_error(objpoints, imgpoints, rvecs, tvecs, mtx, dist):
+        mean_error = 0
+        for i in range(len(objpoints)):
+            imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
+            error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
+            mean_error += error
+        return mean_error/len(objpoints)
+
 def choose_training_run():
     """Prompt user to choose a training run."""
     while True:
@@ -253,6 +263,80 @@ def choose_training_run():
         else:
             print("Invalid choice. Please choose either 1, 2, or 3.")
     return images
+
+def start_live_camera(mtx, dist, square_size=2.4):
+    # Capture live video feed
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Cannot open camera")
+        return
+
+    while True:
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+        if not ret:
+            print("Can't receive frame (stream end?). Exiting ...")
+            break
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Attempt to find chessboard corners
+        ret, corners = cv2.findChessboardCorners(gray, (9,6), None)
+        
+        if ret:
+            # Refine the corner positions
+            corners2 = cv2.cornerSubPix(gray, corners, (11,11), (-1,-1), (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
+            
+            # Estimate the pose of the chessboard
+            objp = np.zeros((6*9,3), np.float32)
+            objp[:,:2] = np.mgrid[0:9,0:6].T.reshape(-1,2) * square_size
+            _, rvecs, tvecs = cv2.solvePnP(objp, corners2, mtx, dist, None, None)
+
+            # Draw 3D axis and cube
+            frame = draw_3D_axis_live_camera(frame, corners2[0].ravel(), mtx, dist, rvecs, tvecs)
+
+        # Display the resulting frame
+        cv2.imshow('Live', frame)
+        if cv2.waitKey(1) == ord('q'):
+            break
+
+    # When everything done, release the capture
+    cap.release()
+    cv2.destroyAllWindows()
+
+def draw_3D_axis_live_camera(img, corner, mtx, dist, rvecs, tvecs):
+    # Define the 3D points for axis (3 units long).
+    axis = np.float32([[0,0,0], [3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
+
+    # Project 3D points to 2D image plane
+    imgpts, jac = cv2.projectPoints(axis, rvecs, tvecs, mtx, dist)
+
+    # Draw axis lines
+    corner = tuple(corner.ravel().astype(int))
+    img = cv2.line(img, corner, tuple(imgpts[1].ravel().astype(int)), (255,0,0), 5)
+    img = cv2.line(img, corner, tuple(imgpts[2].ravel().astype(int)), (0,255,0), 5)
+    img = cv2.line(img, corner, tuple(imgpts[3].ravel().astype(int)), (0,0,255), 5)
+
+    # Define 8 corners of the cube in 3D space (assuming cube size of 3 units).
+    cube_size = 3
+    cube = np.float32([[0,0,0], [0,cube_size,0], [cube_size,cube_size,0], [cube_size,0,0],
+                    [0,0,-cube_size], [0,cube_size,-cube_size], [cube_size,cube_size,-cube_size], [cube_size,0,-cube_size]])
+
+    # Project cube points to the 2D image plane
+    imgpts_cube, _ = cv2.projectPoints(cube, rvecs, tvecs, mtx, dist)
+
+    # Draw the cube by connecting the projected points
+    imgpts_cube = imgpts_cube.reshape(-1, 2).astype(int)
+    edges = [
+        (0, 1), (1, 2), (2, 3), (3, 0),  # Bottom face
+        (4, 5), (5, 6), (6, 7), (7, 4),  # Top face
+        (0, 4), (1, 5), (2, 6), (3, 7)   # Connecting top and bottom faces
+    ]
+    for start, end in edges:
+        img = cv2.line(img, tuple(imgpts_cube[start]), tuple(imgpts_cube[end]), (0,255,255), 3)
+
+    return img
 
 def main():
     images = choose_training_run()
@@ -270,6 +354,8 @@ def main():
     new_height = height // 4
 
     ################### Camera Calibration ###################
+
+    # Resize the images
     resized_images = resize_images(images, (new_width, new_height))
 
     # Call the camera calibration function - automatic calibration
@@ -283,8 +369,9 @@ def main():
     # We get the test image, find the corner points, and use the mtx and dist from the camera calibration and the test image points to 
     # get the rvecs and tvecs. We then use those to create the 3D axis and cube
 
+    # !!!!!!!! CHANGE ACCORDINGLY TO THE TEST IMAGE YOU WANT TO USE !!!!!!!!
     testing_image = cv2.imread("Checker-Images-Testing/IMG_Testing3.jpg")
-    # Manually resize the training image
+
     resized_testing_image = cv2.resize(testing_image, (new_width, new_height))
 
     ret, imgpoints_test = cv2.findChessboardCorners(resized_testing_image, (9,6), None)
@@ -294,29 +381,14 @@ def main():
 
     ret, rvecs_test, tvecs_test = cv2.solvePnP(objp, imgpoints_test, mtx, dist)
 
-    # Works without, maybe we can use them, I don't know
-
-    # newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (new_width,new_height), 1, (new_width,new_height))
-    # # undistort
-    # dst = cv2.undistort(img, mtx, dist, None, newcameramtx)
-    # # crop the image
-    # x, y, w, h = roi
-    # dst = dst[y:y+h, x:x+w]
-
     # Checking the error of the calibration
-    # Doesn't work for some reason when we do manual calibration
-    # mean_error = 0
-    # for i in range(len(objpoints)):
-    #     imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
-    #     error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
-    #     mean_error += error
-    # print( "total error: {}".format(mean_error/len(objpoints)) )
+    total_error = calculate_total_error(objpoints, imgpoints, rvecs, tvecs, mtx, dist)
+    print("total error: {}".format(total_error))
 
     # Draw the 3D axis and the cube on the test image
     imgpts, img_with_axes = draw_3D_axis(ret, mtx, dist, rvecs_test, tvecs_test, resized_testing_image)
     draw_3D_cube(ret, mtx, dist, rvecs_test, tvecs_test, imgpts, img_with_axes)
+    start_live_camera(mtx, dist)
 
 if __name__ == "__main__":
     main()
-
-        
