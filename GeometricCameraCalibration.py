@@ -42,11 +42,13 @@ def calibrate_camera(images, square_size):
             cv2.waitKey(0)  
         else:
             print("Corners not found. Proceeding with manual calibration...")
-            corners = manual_calibrate(img)
+            corners = manual_calibrate(img, square_size)
             if corners is not None:
                 objpoints.append(objp)
                 imgpoints.append(corners)
                 cv2.drawChessboardCorners(img, (9, 6), np.array(corners, dtype=np.float32), True)
+                cv2.imshow('Detected Corners', img)
+                cv2.waitKey(0)
 
     cv2.destroyAllWindows()  
     return objpoints, imgpoints, processed_img
@@ -74,9 +76,11 @@ def process_and_detect_corners(img, square_size, criteria):
     ret, corners = cv2.findChessboardCorners(processed_img, (9, 6), None)
     
     if ret:
+        print("Found the corners in the image. Proceeding with automatic calibration...")
         corners_refined = cv2.cornerSubPix(processed_img, corners, (11, 11), (-1, -1), criteria)
         return True, corners_refined, processed_img
     else:
+        print("Could not find the corners in the image. Proceeding with manual calibration...")
         return False, None, processed_img
     
 # We manually calibrate the camera by clicking on the corners of the checkerboard
